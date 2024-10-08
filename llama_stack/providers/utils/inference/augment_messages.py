@@ -16,6 +16,8 @@ from llama_models.llama3.prompt_templates import (
 )
 from llama_models.sku_list import resolve_model
 
+from llama_stack.providers.utils.inference import supported_inference_models
+
 
 def augment_messages_for_tools(request: ChatCompletionRequest) -> List[Message]:
     """Reads chat completion request and augments the messages to handle tools.
@@ -27,12 +29,13 @@ def augment_messages_for_tools(request: ChatCompletionRequest) -> List[Message]:
         cprint(f"Could not resolve model {request.model}", color="red")
         return request.messages
 
-    if model.model_family not in [ModelFamily.llama3_1, ModelFamily.llama3_2]:
-        cprint(f"Model family {model.model_family} not llama 3_1 or 3_2", color="red")
+    if model.descriptor() not in supported_inference_models():
+        cprint(f"Unsupported inference model? {model.descriptor()}", color="red")
         return request.messages
 
     if model.model_family == ModelFamily.llama3_1 or (
-        model.model_family == ModelFamily.llama3_2 and is_multimodal(model)
+        model.model_family == ModelFamily.llama3_2
+        and is_multimodal(model.core_model_id)
     ):
         # llama3.1 and llama3.2 multimodal models follow the same tool prompt format
         return augment_messages_for_tools_llama_3_1(request)

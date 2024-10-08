@@ -52,8 +52,8 @@ def model_checkpoint_dir(model) -> str:
         checkpoint_dir = checkpoint_dir / "original"
 
     assert checkpoint_dir.exists(), (
-        f"Could not find checkpoint dir: {checkpoint_dir}."
-        f"Please download model using `llama download {model.descriptor()}`"
+        f"Could not find checkpoints in: {model_local_dir(model.descriptor())}. "
+        f"Please download model using `llama download --model-id {model.descriptor()}`"
     )
     return str(checkpoint_dir)
 
@@ -297,7 +297,7 @@ class Llama:
                 token=next_token[0].item(),
                 text=self.tokenizer.decode(next_token.tolist()),
                 logprobs=(
-                    token_logprobs[:, prev_pos + 1 : cur_pos + 1][0].tolist()
+                    token_logprobs[:, cur_pos : cur_pos + 1][0].tolist()
                     if logprobs
                     else None
                 ),

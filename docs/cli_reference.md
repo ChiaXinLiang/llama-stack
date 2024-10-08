@@ -1,11 +1,11 @@
 # Llama CLI Reference
 
-The `llama` CLI tool helps you setup and use the Llama toolchain & agentic systems. It should be available on your path after installing the `llama-stack` package.
+The `llama` CLI tool helps you setup and use the Llama Stack & agentic systems. It should be available on your path after installing the `llama-stack` package.
 
 ### Subcommands
-1. `download`: `llama` cli tools supports downloading the model from Meta or HuggingFace.
+1. `download`: `llama` cli tools supports downloading the model from Meta or Hugging Face.
 2. `model`: Lists available models and their properties.
-3. `stack`: Allows you to build and run a Llama Stack server. You can read more about this [here](/docs/cli_reference.md#step-3-building-configuring-and-running-llama-stack-servers).
+3. `stack`: Allows you to build and run a Llama Stack server. You can read more about this [here](cli_reference.md#step-3-building-and-configuring-llama-stack-distributions).
 
 ### Sample Usage
 
@@ -38,7 +38,7 @@ You should see a table like this:
 
 <pre style="font-family: monospace;">
 +----------------------------------+------------------------------------------+----------------+
-| Model Descriptor                 | HuggingFace Repo                         | Context Length |
+| Model Descriptor                 | Hugging Face Repo                        | Context Length |
 +----------------------------------+------------------------------------------+----------------+
 | Llama3.1-8B                      | meta-llama/Llama-3.1-8B                  | 128K           |
 +----------------------------------+------------------------------------------+----------------+
@@ -109,19 +109,19 @@ llama download --source meta --model-id Llama3.2-11B-Vision-Instruct --meta-url 
 # llama-agents have safety enabled by default. For this, you will need
 # safety models -- Llama-Guard and Prompt-Guard
 llama download --source meta --model-id Prompt-Guard-86M --meta-url META_URL
-llama download --source meta --model-id Llama-Guard-3-8B --meta-url META_URL
+llama download --source meta --model-id Llama-Guard-3-1B --meta-url META_URL
 ```
 
-#### Downloading from [Huggingface](https://huggingface.co/meta-llama)
+#### Downloading from [Hugging Face](https://huggingface.co/meta-llama)
 
 Essentially, the same commands above work, just replace `--source meta` with `--source huggingface`.
 
 ```bash
-llama download --source huggingface --model-id  Meta-Llama3.1-8B-Instruct --hf-token <HF_TOKEN>
+llama download --source huggingface --model-id  Llama3.1-8B-Instruct --hf-token <HF_TOKEN>
 
-llama download --source huggingface --model-id Meta-Llama3.1-70B-Instruct --hf-token <HF_TOKEN>
+llama download --source huggingface --model-id Llama3.1-70B-Instruct --hf-token <HF_TOKEN>
 
-llama download --source huggingface --model-id Llama-Guard-3-8B --ignore-patterns *original*
+llama download --source huggingface --model-id Llama-Guard-3-1B --ignore-patterns *original*
 llama download --source huggingface --model-id Prompt-Guard-86M --ignore-patterns *original*
 ```
 
@@ -180,7 +180,7 @@ llama model describe -m Llama3.2-3B-Instruct
 +-----------------------------+----------------------------------+
 | Model                       | Llama3.2-3B-Instruct             |
 +-----------------------------+----------------------------------+
-| HuggingFace ID              | meta-llama/Llama-3.2-3B-Instruct |
+| Hugging Face ID             | meta-llama/Llama-3.2-3B-Instruct |
 +-----------------------------+----------------------------------+
 | Description                 | Llama 3.2 3b instruct model      |
 +-----------------------------+----------------------------------+
@@ -230,7 +230,7 @@ You will be shown a Markdown formatted description of the model interface and ho
 - Please see our [Getting Started](getting_started.md) guide for more details on how to build and start a Llama Stack distribution.
 
 ### Step 3.1 Build
-In the following steps, imagine we'll be working with a `Meta-Llama3.1-8B-Instruct` model. We will name our build `8b-instruct` to help us remember the config. We will start build our distribution (in the form of a Conda environment, or Docker image). In this step, we will specify:
+In the following steps, imagine we'll be working with a `Llama3.1-8B-Instruct` model. We will name our build `8b-instruct` to help us remember the config. We will start build our distribution (in the form of a Conda environment, or Docker image). In this step, we will specify:
 - `name`: the name for our distribution (e.g. `8b-instruct`)
 - `image_type`: our build image type (`conda | docker`)
 - `distribution_spec`: our distribution specs for specifying API providers
@@ -365,7 +365,7 @@ llama stack configure [ <name> | <docker-image-name> | <path/to/name.build.yaml>
 $ llama stack configure ~/.llama/distributions/conda/8b-instruct-build.yaml
 
 Configuring API: inference (meta-reference)
-Enter value for model (existing: Meta-Llama3.1-8B-Instruct) (required):
+Enter value for model (existing: Llama3.1-8B-Instruct) (required):
 Enter value for quantization (optional):
 Enter value for torch_seed (optional):
 Enter value for max_seq_len (existing: 4096) (required):
@@ -376,7 +376,7 @@ Configuring API: memory (meta-reference-faiss)
 Configuring API: safety (meta-reference)
 Do you want to configure llama_guard_shield? (y/n): y
 Entering sub-configuration for llama_guard_shield:
-Enter value for model (default: Llama-Guard-3-8B) (required):
+Enter value for model (default: Llama-Guard-3-1B) (required):
 Enter value for excluded_categories (default: []) (required):
 Enter value for disable_input_check (default: False) (required):
 Enter value for disable_output_check (default: False) (required):
@@ -397,8 +397,8 @@ YAML configuration has been written to ~/.llama/builds/conda/8b-instruct-run.yam
 After this step is successful, you should be able to find a run configuration spec in `~/.llama/builds/conda/8b-instruct-run.yaml` with the following contents. You may edit this file to change the settings.
 
 As you can see, we did basic configuration above and configured:
-- inference to run on model `Meta-Llama3.1-8B-Instruct` (obtained from `llama model list`)
-- Llama Guard safety shield with model `Llama-Guard-3-8B`
+- inference to run on model `Llama3.1-8B-Instruct` (obtained from `llama model list`)
+- Llama Guard safety shield with model `Llama-Guard-3-1B`
 - Prompt Guard safety shield with model `Prompt-Guard-86M`
 
 For how these configurations are stored as yaml, checkout the file printed at the end of the configuration.

@@ -20,7 +20,7 @@ class MetaReferenceShieldType(Enum):
 
 
 class LlamaGuardShieldConfig(BaseModel):
-    model: str = "Llama-Guard-3-8B"
+    model: str = "Llama-Guard-3-1B"
     excluded_categories: List[str] = []
     disable_input_check: bool = False
     disable_output_check: bool = False
@@ -33,26 +33,12 @@ class LlamaGuardShieldConfig(BaseModel):
             for m in safety_models()
             if (
                 m.core_model_id
-                in {CoreModelId.llama_guard_3_8b, CoreModelId.llama_guard_3_11b_vision}
+                in {
+                    CoreModelId.llama_guard_3_8b,
+                    CoreModelId.llama_guard_3_1b,
+                    CoreModelId.llama_guard_3_11b_vision,
+                }
             )
-        ]
-        if model not in permitted_models:
-            raise ValueError(
-                f"Invalid model: {model}. Must be one of {permitted_models}"
-            )
-        return model
-
-
-class PromptGuardShieldConfig(BaseModel):
-    model: str = "Prompt-Guard-86M"
-
-    @validator("model")
-    @classmethod
-    def validate_model(cls, model: str) -> str:
-        permitted_models = [
-            m.descriptor()
-            for m in safety_models()
-            if m.core_model_id == CoreModelId.prompt_guard_86m
         ]
         if model not in permitted_models:
             raise ValueError(
@@ -63,4 +49,4 @@ class PromptGuardShieldConfig(BaseModel):
 
 class SafetyConfig(BaseModel):
     llama_guard_shield: Optional[LlamaGuardShieldConfig] = None
-    prompt_guard_shield: Optional[PromptGuardShieldConfig] = None
+    enable_prompt_guard: Optional[bool] = False

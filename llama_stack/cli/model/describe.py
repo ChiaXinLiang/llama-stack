@@ -9,11 +9,11 @@ import json
 
 from llama_models.sku_list import resolve_model
 
+from termcolor import colored
+
 from llama_stack.cli.subcommand import Subcommand
 from llama_stack.cli.table import print_table
 from llama_stack.distribution.utils.serialize import EnumEncoder
-
-from termcolor import colored
 
 
 class ModelDescribe(Subcommand):
@@ -39,7 +39,14 @@ class ModelDescribe(Subcommand):
         )
 
     def _run_model_describe_cmd(self, args: argparse.Namespace) -> None:
-        model = resolve_model(args.model_id)
+        from .safety_models import prompt_guard_model_sku
+
+        prompt_guard = prompt_guard_model_sku()
+        if args.model_id == prompt_guard.model_id:
+            model = prompt_guard
+        else:
+            model = resolve_model(args.model_id)
+
         if model is None:
             self.parser.error(
                 f"Model {args.model_id} not found; try 'llama model list' for a list of available models."
@@ -51,7 +58,7 @@ class ModelDescribe(Subcommand):
                 colored("Model", "white", attrs=["bold"]),
                 colored(model.descriptor(), "white", attrs=["bold"]),
             ),
-            ("HuggingFace ID", model.huggingface_repo or "<Not Available>"),
+            ("Hugging Face ID", model.huggingface_repo or "<Not Available>"),
             ("Description", model.description),
             ("Context Length", f"{model.max_seq_length // 1024}K tokens"),
             ("Weights format", model.quantization_format.value),

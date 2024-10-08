@@ -4,13 +4,13 @@
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
 
-from llama_models.sku_list import resolve_model
+from typing import Any, Dict, List
 
 from llama_stack.distribution.utils.model_utils import model_local_dir
 from llama_stack.apis.inference import *  # noqa: F403
 from llama_stack.apis.safety import *  # noqa: F403
 from llama_models.llama3.api.datatypes import *  # noqa: F403
-from llama_stack.distribution.datatypes import Api
+from llama_stack.distribution.datatypes import Api, RoutableProvider
 
 from llama_stack.providers.impls.meta_reference.safety.shields.base import (
     OnViolationAction,
@@ -18,33 +18,31 @@ from llama_stack.providers.impls.meta_reference.safety.shields.base import (
 
 from .config import MetaReferenceShieldType, SafetyConfig
 
-from .shields import (
-    CodeScannerShield,
-    InjectionShield,
-    JailbreakShield,
-    LlamaGuardShield,
-    PromptGuardShield,
-    ShieldBase,
-)
+from .shields import CodeScannerShield, LlamaGuardShield, ShieldBase
+
+PROMPT_GUARD_MODEL = "Prompt-Guard-86M"
 
 
-def resolve_and_get_path(model_name: str) -> str:
-    model = resolve_model(model_name)
-    assert model is not None, f"Could not resolve model {model_name}"
-    model_dir = model_local_dir(model.descriptor())
-    return model_dir
-
-
-class MetaReferenceSafetyImpl(Safety):
+class MetaReferenceSafetyImpl(Safety, RoutableProvider):
     def __init__(self, config: SafetyConfig, deps) -> None:
         self.config = config
         self.inference_api = deps[Api.inference]
 
     async def initialize(self) -> None:
-        shield_cfg = self.config.prompt_guard_shield
-        if shield_cfg is not None:
-            model_dir = resolve_and_get_path(shield_cfg.model)
+        if self.config.enable_prompt_guard:
+            from .shields import PromptGuardShield
+
+            model_dir = model_local_dir(PROMPT_GUARD_MODEL)
             _ = PromptGuardShield.instance(model_dir)
+
+    async def shutdown(self) -> None:
+        pass
+
+    async def validate_routing_keys(self, routing_keys: List[str]) -> None:
+        available_shields = [v.value for v in MetaReferenceShieldType]
+        for key in routing_keys:
+            if key not in available_shields:
+                raise ValueError(f"Unknown safety shield type: {key}")
 
     async def run_shield(
         self,
@@ -88,25 +86,23 @@ class MetaReferenceSafetyImpl(Safety):
             assert (
                 cfg is not None
             ), "Cannot use LlamaGuardShield since not present in config"
-            model_dir = resolve_and_get_path(cfg.model)
 
             return LlamaGuardShield(
-                model_dir=model_dir,
+                model=cfg.model,
+                inference_api=self.inference_api,
                 excluded_categories=cfg.excluded_categories,
                 disable_input_check=cfg.disable_input_check,
                 disable_output_check=cfg.disable_output_check,
             )
         elif typ == MetaReferenceShieldType.jailbreak_shield:
-            assert (
-                cfg.prompt_guard_shield is not None
-            ), "Cannot use Jailbreak Shield since Prompt Guard not present in config"
-            model_dir = resolve_and_get_path(cfg.prompt_guard_shield.model)
+            from .shields import JailbreakShield
+
+            model_dir = model_local_dir(PROMPT_GUARD_MODEL)
             return JailbreakShield.instance(model_dir)
         elif typ == MetaReferenceShieldType.injection_shield:
-            assert (
-                cfg.prompt_guard_shield is not None
-            ), "Cannot use PromptGuardShield since not present in config"
-            model_dir = resolve_and_get_path(cfg.prompt_guard_shield.model)
+            from .shields import InjectionShield
+
+            model_dir = model_local_dir(PROMPT_GUARD_MODEL)
             return InjectionShield.instance(model_dir)
         elif typ == MetaReferenceShieldType.code_scanner_guard:
             return CodeScannerShield.instance()

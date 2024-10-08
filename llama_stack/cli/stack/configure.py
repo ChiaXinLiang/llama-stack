@@ -39,7 +39,9 @@ class StackConfigure(Subcommand):
         )
 
     def _run_stack_configure_cmd(self, args: argparse.Namespace) -> None:
+        import json
         import os
+        import subprocess
         from pathlib import Path
 
         import pkg_resources
@@ -65,18 +67,28 @@ class StackConfigure(Subcommand):
             f"Could not find {build_config_file}. Trying conda build name instead...",
             color="green",
         )
-        if os.getenv("CONDA_PREFIX"):
-            conda_dir = (
-                Path(os.getenv("CONDA_PREFIX")).parent / f"llamastack-{args.config}"
-            )
-            build_config_file = Path(conda_dir) / f"{args.config}-build.yaml"
 
-            if build_config_file.exists():
-                with open(build_config_file, "r") as f:
-                    build_config = BuildConfig(**yaml.safe_load(f))
+        conda_dir = (
+            Path(os.path.expanduser("~/.conda/envs")) / f"llamastack-{args.config}"
+        )
+        output = subprocess.check_output(
+            ["bash", "-c", "conda info --json -a"]
+        )
+        conda_envs = json.loads(output.decode("utf-8"))["envs"]
 
-                self._configure_llama_distribution(build_config, args.output_dir)
-                return
+        for x in conda_envs:
+            if x.endswith(f"/llamastack-{args.config}"):
+                conda_dir = Path(x)
+                break
+
+        build_config_file = Path(conda_dir) / f"{args.config}-build.yaml"
+
+        if build_config_file.exists():
+            with open(build_config_file, "r") as f:
+                build_config = BuildConfig(**yaml.safe_load(f))
+
+            self._configure_llama_distribution(build_config, args.output_dir)
+            return
 
         # if we get here, we need to try to find the docker image
         cprint(
@@ -99,16 +111,10 @@ class StackConfigure(Subcommand):
         # we have regenerated the build config file with script, now check if it exists
         if return_code != 0:
             self.parser.error(
-                f"Failed to configure container {docker_image} with return code {return_code}. Please run `llama stack build first`. "
+                f"Failed to configure container {docker_image} with return code {return_code}. Please run `llama stack build` first. "
             )
             return
 
-        build_name = docker_image.removeprefix("llamastack-")
-        saved_file = str(builds_dir / f"{build_name}-run.yaml")
-        cprint(
-            f"YAML configuration has been written to {saved_file}. You can now run `llama stack run {saved_file}`",
-            color="green",
-        )
         return
 
     def _configure_llama_distribution(

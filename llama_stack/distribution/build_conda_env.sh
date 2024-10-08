@@ -17,19 +17,20 @@ if [ -n "$LLAMA_MODELS_DIR" ]; then
   echo "Using llama-models-dir=$LLAMA_MODELS_DIR"
 fi
 
-if [ "$#" -lt 2 ]; then
-  echo "Usage: $0 <distribution_type> <build_name> <pip_dependencies> [<special_pip_deps>]" >&2
-  echo "Example: $0 <distribution_type> mybuild 'numpy pandas scipy'" >&2
+if [ "$#" -lt 3 ]; then
+  echo "Usage: $0 <distribution_type> <build_name> <build_file_path> <pip_dependencies> [<special_pip_deps>]" >&2
+  echo "Example: $0 <distribution_type> mybuild ./my-stack-build.yaml 'numpy pandas scipy'" >&2
   exit 1
 fi
 
-special_pip_deps="$3"
+special_pip_deps="$4"
 
 set -euo pipefail
 
 build_name="$1"
 env_name="llamastack-$build_name"
-pip_dependencies="$2"
+build_file_path="$2"
+pip_dependencies="$3"
 
 # Define color codes
 RED='\033[0;31m'
@@ -85,7 +86,11 @@ ensure_conda_env_python310() {
       llama-models==$TEST_PYPI_VERSION llama-stack==$TEST_PYPI_VERSION \
       $pip_dependencies
     if [ -n "$special_pip_deps" ]; then
-      $CONDA_PREFIX/bin/pip install --no-deps "$special_pip_deps"
+      IFS='#' read -ra parts <<<"$special_pip_deps"
+      for part in "${parts[@]}"; do
+        echo "$part"
+        $CONDA_PREFIX/bin/pip install $part
+      done
     fi
   else
     # Re-installing llama-stack in the new conda environment
@@ -116,13 +121,16 @@ ensure_conda_env_python310() {
     printf "Installing pip dependencies\n"
     $CONDA_PREFIX/bin/pip install $pip_dependencies
     if [ -n "$special_pip_deps" ]; then
-      IFS='#' read -ra parts <<< "$special_pip_deps"
+      IFS='#' read -ra parts <<<"$special_pip_deps"
       for part in "${parts[@]}"; do
         echo "$part"
         $CONDA_PREFIX/bin/pip install $part
       done
     fi
   fi
+
+  mv $build_file_path $CONDA_PREFIX/
+  echo "Build spec configuration saved at $CONDA_PREFIX/$build_name-build.yaml"
 }
 
 ensure_conda_env_python310 "$env_name" "$pip_dependencies" "$special_pip_deps"

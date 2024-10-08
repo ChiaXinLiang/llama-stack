@@ -13,7 +13,6 @@ import httpx
 
 from llama_models.llama3.api.datatypes import ImageMedia, URL
 
-from PIL import Image as PIL_Image
 from pydantic import BaseModel
 
 from llama_models.llama3.api import *  # noqa: F403
@@ -101,38 +100,58 @@ class InferenceClient(Inference):
                             print(f"Error with parsing or validation: {e}")
 
 
-async def run_main(host: str, port: int, stream: bool):
+async def run_main(
+    host: str, port: int, stream: bool, model: Optional[str], logprobs: bool
+):
     client = InferenceClient(f"http://{host}:{port}")
+
+    if not model:
+        model = "Llama3.1-8B-Instruct"
 
     message = UserMessage(
         content="hello world, write me a 2 sentence poem about the moon"
     )
     cprint(f"User>{message.content}", "green")
+
+    if logprobs:
+        logprobs_config = LogProbConfig(
+            top_k=1,
+        )
+    else:
+        logprobs_config = None
+
     iterator = client.chat_completion(
-        model="Llama3.1-8B-Instruct",
+        model=model,
         messages=[message],
         stream=stream,
+        logprobs=logprobs_config,
     )
-    async for log in EventLogger().log(iterator):
-        log.print()
+
+    if logprobs:
+        async for chunk in iterator:
+            cprint(f"Response: {chunk}", "red")
+    else:
+        async for log in EventLogger().log(iterator):
+            log.print()
 
 
-async def run_mm_main(host: str, port: int, stream: bool, path: str):
+async def run_mm_main(
+    host: str, port: int, stream: bool, path: Optional[str], model: Optional[str]
+):
     client = InferenceClient(f"http://{host}:{port}")
 
-    with open(path, "rb") as f:
-        img = PIL_Image.open(f).convert("RGB")
+    if not model:
+        model = "Llama3.2-11B-Vision-Instruct"
 
     message = UserMessage(
         content=[
             ImageMedia(image=URL(uri=f"file://{path}")),
-            # ImageMedia(image=img),
             "Describe this image in two sentences",
         ],
     )
     cprint(f"User>{message.content}", "green")
     iterator = client.chat_completion(
-        model="Llama3.2-11B-Vision-Instruct",
+        model=model,
         messages=[message],
         stream=stream,
     )
@@ -140,11 +159,19 @@ async def run_mm_main(host: str, port: int, stream: bool, path: str):
         log.print()
 
 
-def main(host: str, port: int, stream: bool = True, mm: bool = False, file: str = None):
+def main(
+    host: str,
+    port: int,
+    stream: bool = True,
+    mm: bool = False,
+    logprobs: bool = False,
+    file: Optional[str] = None,
+    model: Optional[str] = None,
+):
     if mm:
-        asyncio.run(run_mm_main(host, port, stream, file))
+        asyncio.run(run_mm_main(host, port, stream, file, model))
     else:
-        asyncio.run(run_main(host, port, stream))
+        asyncio.run(run_main(host, port, stream, model, logprobs))
 
 
 if __name__ == "__main__":

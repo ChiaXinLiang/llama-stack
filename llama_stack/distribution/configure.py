@@ -6,13 +6,24 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from llama_models.sku_list import (
+    llama3_1_family,
+    llama3_2_family,
+    llama3_family,
+    resolve_model,
+    safety_models,
+)
 
+from pydantic import BaseModel
 from llama_stack.distribution.datatypes import *  # noqa: F403
+from prompt_toolkit import prompt
+from prompt_toolkit.validation import Validator
+from termcolor import cprint
+
 from llama_stack.apis.memory.memory import MemoryBankType
 from llama_stack.distribution.distribution import (
-    api_providers,
     builtin_automatically_routed_apis,
+    get_provider_registry,
     stack_apis,
 )
 from llama_stack.distribution.utils.dynamic import instantiate_class_type
@@ -21,9 +32,11 @@ from llama_stack.distribution.utils.prompt_for_config import prompt_for_config
 from llama_stack.providers.impls.meta_reference.safety.config import (
     MetaReferenceShieldType,
 )
-from prompt_toolkit import prompt
-from prompt_toolkit.validation import Validator
-from termcolor import cprint
+
+
+ALLOWED_MODELS = (
+    llama3_family() + llama3_1_family() + llama3_2_family() + safety_models()
+)
 
 
 def make_routing_entry_type(config_class: Any):
@@ -61,7 +74,7 @@ def configure_api_providers(
     config.apis_to_serve = list(set([a for a in apis if a != "telemetry"]))
 
     apis = [v.value for v in stack_apis()]
-    all_providers = api_providers()
+    all_providers = get_provider_registry()
 
     # configure simple case for with non-routing providers to api_providers
     for api_str in spec.providers.keys():
@@ -103,12 +116,18 @@ def configure_api_providers(
                 else:
                     routing_key = prompt(
                         "> Please enter the supported model your provider has for inference: ",
-                        default="Meta-Llama3.1-8B-Instruct",
+                        default="Llama3.1-8B-Instruct",
+                        validator=Validator.from_callable(
+                            lambda x: resolve_model(x) is not None,
+                            error_message="Model must be: {}".format(
+                                [x.descriptor() for x in ALLOWED_MODELS]
+                            ),
+                        ),
                     )
                 routing_entries.append(
                     RoutableProviderConfig(
                         routing_key=routing_key,
-                        provider_id=p,
+                        provider_type=p,
                         config=cfg.dict(),
                     )
                 )
@@ -116,23 +135,23 @@ def configure_api_providers(
             if api_str == "safety":
                 # TODO: add support for other safety providers, and simplify safety provider config
                 if p == "meta-reference":
-                    for shield_type in MetaReferenceShieldType:
-                        routing_entries.append(
-                            RoutableProviderConfig(
-                                routing_key=shield_type.value,
-                                provider_id=p,
-                                config=cfg.dict(),
-                            )
+                    routing_entries.append(
+                        RoutableProviderConfig(
+                            routing_key=[s.value for s in MetaReferenceShieldType],
+                            provider_type=p,
+                            config=cfg.dict(),
                         )
+                    )
                 else:
                     cprint(
-                        f"[WARN] Interactive configuration of safety provider {p} is not supported, please manually configure safety shields types in routing_table of run.yaml",
+                        f"[WARN] Interactive configuration of safety provider {p} is not supported. Please look for `{routing_key}` in run.yaml and replace it appropriately.",
                         "yellow",
+                        attrs=["bold"],
                     )
                     routing_entries.append(
                         RoutableProviderConfig(
                             routing_key=routing_key,
-                            provider_id=p,
+                            provider_type=p,
                             config=cfg.dict(),
                         )
                     )
@@ -152,7 +171,7 @@ def configure_api_providers(
                 routing_entries.append(
                     RoutableProviderConfig(
                         routing_key=routing_key,
-                        provider_id=p,
+                        provider_type=p,
                         config=cfg.dict(),
                     )
                 )
@@ -163,7 +182,7 @@ def configure_api_providers(
             )
         else:
             config.api_providers[api_str] = GenericProviderConfig(
-                provider_id=p,
+                provider_type=p,
                 config=cfg.dict(),
             )
 

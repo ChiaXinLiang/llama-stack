@@ -1,7 +1,7 @@
 # llama-stack
 
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/llama-stack)](https://pypi.org/project/llama-stack/)
-[![Discord](https://img.shields.io/discord/1257833999603335178)](https://discord.gg/TZAAYNVtrU)
+[![Discord](https://img.shields.io/discord/1257833999603335178)](https://discord.gg/llama-stack)
 
 This repository contains the specifications and implementations of the APIs which are part of the Llama Stack.
 
@@ -66,8 +66,17 @@ This guides allows you to quickly get started with building and running a Llama 
 You may also checkout this [notebook](https://github.com/meta-llama/llama-stack/blob/main/docs/getting_started.ipynb) for trying out out demo scripts.
 
 ## Quick Cheatsheet
-- Quick 3 line command to build and start a LlamaStack server using our Meta Reference implementation for all API endpoints with `conda` as build type.
 
+#### Via docker
+```
+docker run -it -p 5000:5000 -v ~/.llama:/root/.llama --gpus=all llamastack-local-gpu
+```
+
+> [!NOTE]
+> `~/.llama` should be the path containing downloaded weights of Llama models. 
+
+
+#### Via conda
 **`llama stack build`**
 - You'll be prompted to enter build information interactively.
 ```
@@ -267,6 +276,9 @@ llama stack build --config llama_stack/distribution/templates/local-ollama-build
 
 #### How to build distribution with Docker image
 
+> [!TIP]
+> Podman is supported as an alternative to Docker. Set `DOCKER_BINARY` to `podman` in your environment to use Podman.
+
 To build a docker image, you may start off from a template and use the `--image-type docker` flag to specify `docker` as the build image type.
 
 ```
@@ -326,7 +338,7 @@ Configuring API: memory (meta-reference-faiss)
 Configuring API: safety (meta-reference)
 Do you want to configure llama_guard_shield? (y/n): y
 Entering sub-configuration for llama_guard_shield:
-Enter value for model (default: Llama-Guard-3-8B) (required):
+Enter value for model (default: Llama-Guard-3-1B) (required):
 Enter value for excluded_categories (default: []) (required):
 Enter value for disable_input_check (default: False) (required):
 Enter value for disable_output_check (default: False) (required):
@@ -348,7 +360,7 @@ After this step is successful, you should be able to find a run configuration sp
 
 As you can see, we did basic configuration above and configured:
 - inference to run on model `Meta-Llama3.1-8B-Instruct` (obtained from `llama model list`)
-- Llama Guard safety shield with model `Llama-Guard-3-8B`
+- Llama Guard safety shield with model `Llama-Guard-3-1B`
 - Prompt Guard safety shield with model `Prompt-Guard-86M`
 
 For how these configurations are stored as yaml, checkout the file printed at the end of the configuration.

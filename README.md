@@ -1,7 +1,8 @@
 # Llama Stack
 
+[![PyPI version](https://img.shields.io/pypi/v/llama_stack.svg)](https://pypi.org/project/llama_stack/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/llama-stack)](https://pypi.org/project/llama-stack/)
-[![Discord](https://img.shields.io/discord/1257833999603335178)](https://discord.gg/TZAAYNVtrU)
+[![Discord](https://img.shields.io/discord/1257833999603335178)](https://discord.gg/llama-stack)
 
 This repository contains the Llama Stack API specifications as well as API Providers and Llama Stack Distributions.
 
@@ -80,6 +81,24 @@ cd llama-stack
 $CONDA_PREFIX/bin/pip install -e .
 ```
 
-## The Llama CLI
+## Documentations
 
-The `llama` CLI makes it easy to work with the Llama Stack set of tools, including installing and running Distributions, downloading models, studying model prompt formats, etc. Please see the [CLI reference](docs/cli_reference.md) for details.
+The `llama` CLI makes it easy to work with the Llama Stack set of tools. Please find the following docs for details.
+
+* [CLI reference](docs/cli_reference.md)
+    * Guide using `llama` CLI to work with Llama models (download, study prompts), and building/starting a Llama Stack distribution.
+* [Getting Started](docs/getting_started.md)
+    * Guide to build and run a Llama Stack server.
+* [Contributing](CONTRIBUTING.md)
+
+
+## Llama Stack Client SDK
+
+|  **Language** |  **Client SDK** | **Package** |
+| :----: | :----: | :----: |
+| Python |  [llama-stack-client-python](https://github.com/meta-llama/llama-stack-client-python) | [![PyPI version](https://img.shields.io/pypi/v/llama_stack_client.svg)](https://pypi.org/project/llama_stack_client/)
+| Swift  | [llama-stack-client-swift](https://github.com/meta-llama/llama-stack-client-swift) |
+| Node   | [llama-stack-client-node](https://github.com/meta-llama/llama-stack-client-node) | [![NPM version](https://img.shields.io/npm/v/llama-stack-client.svg)](https://npmjs.org/package/llama-stack-client)
+| Kotlin | [llama-stack-client-kotlin](https://github.com/meta-llama/llama-stack-client-kotlin) |
+
+Check out our client SDKs for connecting to Llama Stack server in your preferred language, you can choose from [python](https://github.com/meta-llama/llama-stack-client-python), [node](https://github.com/meta-llama/llama-stack-client-node), [swift](https://github.com/meta-llama/llama-stack-client-swift), and [kotlin](https://github.com/meta-llama/llama-stack-client-kotlin) programming languages to quickly build your applications.
