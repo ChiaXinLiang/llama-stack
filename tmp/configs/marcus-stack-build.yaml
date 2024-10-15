@@ -1,0 +1,11 @@
+name: marcus-stack
+distribution_spec:
+  description: ''
+  docker_image: null
+  providers:
+    inference: meta-reference
+    safety: meta-reference
+    agents: meta-reference
+    memory: meta-reference
+    telemetry: meta-reference
+image_type: docker

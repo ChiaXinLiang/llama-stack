@@ -40,7 +40,6 @@ class AgentTool(Enum):
     wolfram_alpha = "wolfram_alpha"
     photogen = "photogen"
     code_interpreter = "code_interpreter"
-
     function_call = "function_call"
     memory = "memory"
 
