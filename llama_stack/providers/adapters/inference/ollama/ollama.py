@@ -33,7 +33,8 @@ OLLAMA_SUPPORTED_MODELS = {
     "Llama3.1-70B-Instruct": "llama3.1:70b-instruct-fp16",
     "Llama3.2-1B-Instruct": "llama3.2:1b-instruct-fp16",
     "Llama3.2-3B-Instruct": "llama3.2:3b-instruct-fp16",
-    "Llama-Guard-3-8B": "xe/llamaguard3:latest",
+    "Llama-Guard-3-8B": "llama-guard3:8b",
+    "Llama-Guard-3-1B": "llama-guard3:1b",
 }
 
 
@@ -84,7 +85,7 @@ class OllamaInferenceAdapter(Inference, ModelsProtocolPrivate):
 
         return ret
 
-    def completion(
+    async def completion(
         self,
         model: str,
         content: InterleavedTextMedia,
@@ -94,7 +95,7 @@ class OllamaInferenceAdapter(Inference, ModelsProtocolPrivate):
     ) -> AsyncGenerator:
         raise NotImplementedError()
 
-    def chat_completion(
+    async def chat_completion(
         self,
         model: str,
         messages: List[Message],
@@ -118,7 +119,7 @@ class OllamaInferenceAdapter(Inference, ModelsProtocolPrivate):
         if stream:
             return self._stream_chat_completion(request)
         else:
-            return self._nonstream_chat_completion(request)
+            return await self._nonstream_chat_completion(request)
 
     def _get_params(self, request: ChatCompletionRequest) -> dict:
         return {
@@ -143,7 +144,7 @@ class OllamaInferenceAdapter(Inference, ModelsProtocolPrivate):
         response = OpenAICompatCompletionResponse(
             choices=[choice],
         )
-        return process_chat_completion_response(request, response, self.formatter)
+        return process_chat_completion_response(response, self.formatter)
 
     async def _stream_chat_completion(
         self, request: ChatCompletionRequest
@@ -163,7 +164,7 @@ class OllamaInferenceAdapter(Inference, ModelsProtocolPrivate):
 
         stream = _generate_and_convert_to_openai_compat()
         async for chunk in process_chat_completion_stream_response(
-            request, stream, self.formatter
+            stream, self.formatter
         ):
             yield chunk
 
