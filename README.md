@@ -65,23 +65,30 @@ A Distribution is where APIs and Providers are assembled together to provide a c
 |  Dell-TGI | [Local TGI + Chroma](https://hub.docker.com/repository/docker/llamastack/llamastack-local-tgi-chroma/general)  | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: | :heavy_check_mark: |
 
 
+
 ## Installation
 
-You can install this repository as a [package](https://pypi.org/project/llama-stack/) with `pip install llama-stack`
+You have two ways to install this repository:
 
-If you want to install from source:
+1. **Install as a package**:
+   You can install the repository directly from [PyPI](https://pypi.org/project/llama-stack/) by running the following command:
+   ```bash
+   pip install llama-stack
+   ```
 
-```bash
-mkdir -p ~/local
-cd ~/local
-git clone git@github.com:meta-llama/llama-stack.git
+2. **Install from source**:
+   If you prefer to install from the source code, follow these steps:
+   ```bash
+    mkdir -p ~/local
+    cd ~/local
+    git clone git@github.com:meta-llama/llama-stack.git
 
-conda create -n stack python=3.10
-conda activate stack
+    conda create -n stack python=3.10
+    conda activate stack
 
-cd llama-stack
-$CONDA_PREFIX/bin/pip install -e .
-```
+    cd llama-stack
+    $CONDA_PREFIX/bin/pip install -e .
+   ```
 
 ## Documentations
 
@@ -90,9 +97,16 @@ The `llama` CLI makes it easy to work with the Llama Stack set of tools. Please 
 * [CLI reference](docs/cli_reference.md)
     * Guide using `llama` CLI to work with Llama models (download, study prompts), and building/starting a Llama Stack distribution.
 * [Getting Started](docs/getting_started.md)
-    * Guide to start a Llama Stack server.
+    * Quick guide to start a Llama Stack server.
     * [Jupyter notebook](./docs/getting_started.ipynb) to walk-through how to use simple text and vision inference llama_stack_client APIs
+* [Building a Llama Stack Distribution](docs/building_distro.md)
+    * Guide to build a Llama Stack distribution
+* [Distributions](./distributions/)
+    * References to start Llama Stack distributions backed with different API providers.
+* [Developer Cookbook](./docs/developer_cookbook.md)
+    * References to guides to help you get started based on your developer needs.
 * [Contributing](CONTRIBUTING.md)
+    * [Adding a new API Provider](./docs/new_api_provider.md) to walk-through how to add a new API provider.
 
 ## Llama Stack Client SDK
 

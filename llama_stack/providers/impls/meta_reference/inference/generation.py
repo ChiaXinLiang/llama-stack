@@ -8,11 +8,12 @@
 # This software may be used and distributed in accordance with the terms of the Llama 3 Community License Agreement.
 
 import json
+import math
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Generator, List, Optional, Union
+from typing import Generator, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -29,17 +30,25 @@ from llama_models.llama3.reference_impl.multimodal.model import (
     CrossAttentionTransformer,
 )
 from llama_models.sku_list import resolve_model
-
 from pydantic import BaseModel
 from termcolor import cprint
 
 from llama_stack.apis.inference import *  # noqa: F403
+
+from lmformatenforcer import JsonSchemaParser, TokenEnforcer, TokenEnforcerTokenizerData
+
 from llama_stack.distribution.utils.model_utils import model_local_dir
 from llama_stack.providers.utils.inference.prompt_adapter import (
+    augment_content_with_response_format_prompt,
     chat_completion_request_to_messages,
 )
 
-from .config import MetaReferenceInferenceConfig, MetaReferenceQuantizedInferenceConfig
+from .config import (
+    Fp8QuantizationConfig,
+    Int4QuantizationConfig,
+    MetaReferenceInferenceConfig,
+    MetaReferenceQuantizedInferenceConfig,
+)
 
 
 def model_checkpoint_dir(model) -> str:
@@ -67,7 +76,7 @@ class Llama:
     def build(
         config: Union[
             MetaReferenceInferenceConfig, MetaReferenceQuantizedInferenceConfig
-        ]
+        ],
     ):
         """
         Build a Llama instance by initializing and loading a model checkpoint.
@@ -127,18 +136,43 @@ class Llama:
         ), f"model_args vocab = {model_args.vocab_size} but tokenizer vocab = {tokenizer.n_words}"
 
         if isinstance(config, MetaReferenceQuantizedInferenceConfig):
-            from .quantization.loader import convert_to_quantized_model
 
-            # load on CPU in bf16 so that fp8 conversion does not find an
-            # unexpected (fp32, e.g.) datatype
-            torch.set_default_tensor_type(torch.BFloat16Tensor)
-            if model_args.vision_chunk_size > 0:
-                model = CrossAttentionTransformer(model_args)
-                model.setup_cache(model_args.max_batch_size, torch.bfloat16)
-            else:
+            if isinstance(config.quantization, Fp8QuantizationConfig):
+                from .quantization.loader import convert_to_fp8_quantized_model
+
+                # load on CPU in bf16 so that fp8 conversion does not find an
+                # unexpected (fp32, e.g.) datatype
+                torch.set_default_tensor_type(torch.BFloat16Tensor)
+                if model_args.vision_chunk_size > 0:
+                    model = CrossAttentionTransformer(model_args)
+                    model.setup_cache(model_args.max_batch_size, torch.bfloat16)
+                else:
+                    model = Transformer(model_args)
+                model.load_state_dict(state_dict, strict=False)
+                model = convert_to_fp8_quantized_model(model, config, ckpt_dir)
+            elif isinstance(config.quantization, Int4QuantizationConfig):
+                from .quantization.loader import convert_to_int4_quantized_model
+
                 model = Transformer(model_args)
-            model.load_state_dict(state_dict, strict=False)
-            model = convert_to_quantized_model(model, config, ckpt_dir)
+                model = convert_to_int4_quantized_model(model, model_args, config)
+                model.load_state_dict(state_dict, strict=True)
+
+                if (
+                    model_args.quantization_args is not None
+                    and model_args.quantization_args.spinquant
+                ):
+                    # Add a wrapper for adding hadamard transform for spinquant.
+                    # This needs to be done after loading the state dict otherwise an error will be raised while
+                    # loading the state dict.
+                    from .quantization.hadamard_utils import (
+                        add_hadamard_transform_for_spinquant,
+                    )
+
+                    add_hadamard_transform_for_spinquant(model)
+            else:
+                raise NotImplementedError(
+                    "Currently int4 and fp8 are the only supported quantization methods."
+                )
         else:
             if torch.cuda.is_bf16_supported():
                 torch.set_default_tensor_type(torch.cuda.BFloat16Tensor)
@@ -171,6 +205,7 @@ class Llama:
         echo: bool = False,
         include_stop_token: bool = False,
         print_input_tokens: bool = False,
+        logits_processor: Optional["LogitsProcessor"] = None,
     ) -> Generator:
         params = self.model.params
 
@@ -246,6 +281,9 @@ class Llama:
             else:
                 logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
 
+            if logits_processor is not None:
+                logits = logits_processor.process_logits(tokens[:, :cur_pos], logits)
+
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)
@@ -309,7 +347,10 @@ class Llama:
         ):
             max_gen_len = self.model.params.max_seq_len - 1
 
-        model_input = self.formatter.encode_content(request.content)
+        content = augment_content_with_response_format_prompt(
+            request.response_format, request.content
+        )
+        model_input = self.formatter.encode_content(content)
         yield from self.generate(
             model_input=model_input,
             max_gen_len=max_gen_len,
@@ -317,7 +358,11 @@ class Llama:
             top_p=sampling_params.top_p,
             logprobs=bool(request.logprobs),
             include_stop_token=True,
-            echo=False,
+            logits_processor=get_logits_processor(
+                self.tokenizer,
+                self.args.vocab_size,
+                request.response_format,
+            ),
         )
 
     def chat_completion(
@@ -345,6 +390,11 @@ class Llama:
             top_p=sampling_params.top_p,
             logprobs=bool(request.logprobs),
             include_stop_token=True,
+            logits_processor=get_logits_processor(
+                self.tokenizer,
+                self.args.vocab_size,
+                request.response_format,
+            ),
         )
 
 
@@ -371,3 +421,64 @@ def sample_top_p(probs, p):
     next_token = torch.multinomial(probs_sort, num_samples=1)
     next_token = torch.gather(probs_idx, -1, next_token)
     return next_token
+
+
+class LogitsProcessor:
+    def __init__(self, token_enforcer: TokenEnforcer):
+        self.token_enforcer = token_enforcer
+        self.mask: Optional[torch.Tensor] = None
+
+    def process_logits(
+        self, tokens: torch.Tensor, scores: torch.Tensor
+    ) -> torch.Tensor:
+        token_sequence = tokens[0, :].tolist()
+        allowed_tokens = self.token_enforcer.get_allowed_tokens(token_sequence)
+
+        if self.mask is not None:
+            self.mask.fill_(-math.inf)
+        else:
+            self.mask = torch.full_like(scores, -math.inf)
+
+        self.mask[:, :, allowed_tokens] = 0
+        scores = scores + self.mask
+        return scores
+
+
+def get_logits_processor(
+    tokenizer: Tokenizer,
+    vocab_size: int,
+    response_format: Optional[ResponseFormat],
+) -> Optional["LogitsProcessor"]:
+    if response_format is None:
+        return None
+
+    if response_format.type != ResponseFormatType.json_schema.value:
+        raise ValueError(f"Unsupported response format type {response_format.type}")
+
+    parser = JsonSchemaParser(response_format.json_schema)
+    data = TokenEnforcerTokenizerData(
+        _build_regular_tokens_list(tokenizer, vocab_size),
+        tokenizer.decode,
+        tokenizer.stop_tokens,
+    )
+    token_enforcer = TokenEnforcer(data, parser)
+    return LogitsProcessor(token_enforcer)
+
+
+def _build_regular_tokens_list(
+    tokenizer: Tokenizer, vocab_size: int
+) -> List[Tuple[int, str, bool]]:
+    token_0 = tokenizer.encode("0", bos=False, eos=False)[-1]
+    regular_tokens = []
+
+    special_token_ids = set(tokenizer.special_tokens.values())
+    for token_idx in range(vocab_size):
+        if token_idx in special_token_ids:
+            continue
+
+        # We prepend token 0 and skip the first letter of the result to get a space if the token is a start word.
+        decoded_after_0 = tokenizer.decode([token_0, token_idx])[1:]
+        decoded_regular = tokenizer.decode([token_idx])
+        is_word_start_token = len(decoded_after_0) > len(decoded_regular)
+        regular_tokens.append((token_idx, decoded_after_0, is_word_start_token))
+    return regular_tokens

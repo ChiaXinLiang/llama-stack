@@ -20,9 +20,12 @@ from llama_stack.providers.utils.inference.openai_compat import (
     get_sampling_options,
     process_chat_completion_response,
     process_chat_completion_stream_response,
+    process_completion_response,
+    process_completion_stream_response,
 )
 from llama_stack.providers.utils.inference.prompt_adapter import (
     chat_completion_request_to_prompt,
+    completion_request_to_prompt,
 )
 
 from .config import FireworksImplConfig
@@ -34,6 +37,8 @@ FIREWORKS_SUPPORTED_MODELS = {
     "Llama3.1-405B-Instruct": "fireworks/llama-v3p1-405b-instruct",
     "Llama3.2-1B-Instruct": "fireworks/llama-v3p2-1b-instruct",
     "Llama3.2-3B-Instruct": "fireworks/llama-v3p2-3b-instruct",
+    "Llama3.2-11B-Vision-Instruct": "llama-v3p2-11b-vision-instruct",
+    "Llama3.2-90B-Vision-Instruct": "llama-v3p2-90b-vision-instruct",
 }
 
 
@@ -56,10 +61,39 @@ class FireworksInferenceAdapter(ModelRegistryHelper, Inference):
         model: str,
         content: InterleavedTextMedia,
         sampling_params: Optional[SamplingParams] = SamplingParams(),
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
     ) -> AsyncGenerator:
-        raise NotImplementedError()
+        request = CompletionRequest(
+            model=model,
+            content=content,
+            sampling_params=sampling_params,
+            response_format=response_format,
+            stream=stream,
+            logprobs=logprobs,
+        )
+        client = Fireworks(api_key=self.config.api_key)
+        if stream:
+            return self._stream_completion(request, client)
+        else:
+            return await self._nonstream_completion(request, client)
+
+    async def _nonstream_completion(
+        self, request: CompletionRequest, client: Fireworks
+    ) -> CompletionResponse:
+        params = self._get_params(request)
+        r = await client.completion.acreate(**params)
+        return process_completion_response(r, self.formatter)
+
+    async def _stream_completion(
+        self, request: CompletionRequest, client: Fireworks
+    ) -> AsyncGenerator:
+        params = self._get_params(request)
+
+        stream = client.completion.acreate(**params)
+        async for chunk in process_completion_stream_response(stream, self.formatter):
+            yield chunk
 
     async def chat_completion(
         self,
@@ -69,6 +103,7 @@ class FireworksInferenceAdapter(ModelRegistryHelper, Inference):
         tools: Optional[List[ToolDefinition]] = None,
         tool_choice: Optional[ToolChoice] = ToolChoice.auto,
         tool_prompt_format: Optional[ToolPromptFormat] = ToolPromptFormat.json,
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
     ) -> AsyncGenerator:
@@ -79,6 +114,7 @@ class FireworksInferenceAdapter(ModelRegistryHelper, Inference):
             tools=tools or [],
             tool_choice=tool_choice,
             tool_prompt_format=tool_prompt_format,
+            response_format=response_format,
             stream=stream,
             logprobs=logprobs,
         )
@@ -107,14 +143,35 @@ class FireworksInferenceAdapter(ModelRegistryHelper, Inference):
         ):
             yield chunk
 
-    def _get_params(self, request: ChatCompletionRequest) -> dict:
-        prompt = chat_completion_request_to_prompt(request, self.formatter)
+    def _get_params(self, request) -> dict:
+        prompt = ""
+        if type(request) == ChatCompletionRequest:
+            prompt = chat_completion_request_to_prompt(request, self.formatter)
+        elif type(request) == CompletionRequest:
+            prompt = completion_request_to_prompt(request, self.formatter)
+        else:
+            raise ValueError(f"Unknown request type {type(request)}")
+
         # Fireworks always prepends with BOS
         if prompt.startswith("<|begin_of_text|>"):
             prompt = prompt[len("<|begin_of_text|>") :]
 
-        options = get_sampling_options(request)
+        options = get_sampling_options(request.sampling_params)
         options.setdefault("max_tokens", 512)
+
+        if fmt := request.response_format:
+            if fmt.type == ResponseFormatType.json_schema.value:
+                options["response_format"] = {
+                    "type": "json_object",
+                    "schema": fmt.json_schema,
+                }
+            elif fmt.type == ResponseFormatType.grammar.value:
+                options["response_format"] = {
+                    "type": "grammar",
+                    "grammar": fmt.bnf,
+                }
+            else:
+                raise ValueError(f"Unknown response format {fmt.type}")
         return {
             "model": self.map_to_provider_model(request.model),
             "prompt": prompt,

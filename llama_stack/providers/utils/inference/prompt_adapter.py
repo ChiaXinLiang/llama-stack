@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
+import json
 from typing import Tuple
 
 from llama_models.llama3.api.chat_format import ChatFormat
@@ -21,6 +22,36 @@ from llama_models.llama3.prompt_templates import (
 from llama_models.sku_list import resolve_model
 
 from llama_stack.providers.utils.inference import supported_inference_models
+
+
+def completion_request_to_prompt(
+    request: CompletionRequest, formatter: ChatFormat
+) -> str:
+    content = augment_content_with_response_format_prompt(
+        request.response_format, request.content
+    )
+    model_input = formatter.encode_content(content)
+    return formatter.tokenizer.decode(model_input.tokens)
+
+
+def completion_request_to_prompt_model_input_info(
+    request: CompletionRequest, formatter: ChatFormat
+) -> Tuple[str, int]:
+    content = augment_content_with_response_format_prompt(
+        request.response_format, request.content
+    )
+    model_input = formatter.encode_content(content)
+    return (formatter.tokenizer.decode(model_input.tokens), len(model_input.tokens))
+
+
+def augment_content_with_response_format_prompt(response_format, content):
+    if fmt_prompt := response_format_prompt(response_format):
+        if isinstance(content, list):
+            return content + [fmt_prompt]
+        else:
+            return [content, fmt_prompt]
+
+    return content
 
 
 def chat_completion_request_to_prompt(
@@ -63,11 +94,28 @@ def chat_completion_request_to_messages(
         and is_multimodal(model.core_model_id)
     ):
         # llama3.1 and llama3.2 multimodal models follow the same tool prompt format
-        return augment_messages_for_tools_llama_3_1(request)
+        messages = augment_messages_for_tools_llama_3_1(request)
     elif model.model_family == ModelFamily.llama3_2:
-        return augment_messages_for_tools_llama_3_2(request)
+        messages = augment_messages_for_tools_llama_3_2(request)
     else:
-        return request.messages
+        messages = request.messages
+
+    if fmt_prompt := response_format_prompt(request.response_format):
+        messages.append(UserMessage(content=fmt_prompt))
+
+    return messages
+
+
+def response_format_prompt(fmt: Optional[ResponseFormat]):
+    if not fmt:
+        return None
+
+    if fmt.type == ResponseFormatType.json_schema.value:
+        return f"Please respond in JSON format with the schema: {json.dumps(fmt.json_schema)}"
+    elif fmt.type == ResponseFormatType.grammar.value:
+        raise NotImplementedError("Grammar response format not supported yet")
+    else:
+        raise ValueError(f"Unknown response format {fmt.type}")
 
 
 def augment_messages_for_tools_llama_3_1(

@@ -12,18 +12,20 @@ from llama_stack.providers.datatypes import *  # noqa: F403
 from llama_stack.distribution.datatypes import *  # noqa: F403
 
 from llama_stack.apis.agents import Agents
+from llama_stack.apis.datasetio import DatasetIO
+from llama_stack.apis.datasets import Datasets
+from llama_stack.apis.eval import Eval
 from llama_stack.apis.inference import Inference
 from llama_stack.apis.inspect import Inspect
 from llama_stack.apis.memory import Memory
 from llama_stack.apis.memory_banks import MemoryBanks
 from llama_stack.apis.models import Models
 from llama_stack.apis.safety import Safety
+from llama_stack.apis.scoring import Scoring
+from llama_stack.apis.scoring_functions import ScoringFunctions
 from llama_stack.apis.shields import Shields
 from llama_stack.apis.telemetry import Telemetry
-from llama_stack.distribution.distribution import (
-    builtin_automatically_routed_apis,
-    get_provider_registry,
-)
+from llama_stack.distribution.distribution import builtin_automatically_routed_apis
 from llama_stack.distribution.utils.dynamic import instantiate_class_type
 
 
@@ -38,14 +40,21 @@ def api_protocol_map() -> Dict[Api, Any]:
         Api.safety: Safety,
         Api.shields: Shields,
         Api.telemetry: Telemetry,
+        Api.datasetio: DatasetIO,
+        Api.datasets: Datasets,
+        Api.scoring: Scoring,
+        Api.scoring_functions: ScoringFunctions,
+        Api.eval: Eval,
     }
 
 
 def additional_protocols_map() -> Dict[Api, Any]:
     return {
-        Api.inference: ModelsProtocolPrivate,
-        Api.memory: MemoryBanksProtocolPrivate,
-        Api.safety: ShieldsProtocolPrivate,
+        Api.inference: (ModelsProtocolPrivate, Models),
+        Api.memory: (MemoryBanksProtocolPrivate, MemoryBanks),
+        Api.safety: (ShieldsProtocolPrivate, Shields),
+        Api.datasetio: (DatasetsProtocolPrivate, Datasets),
+        Api.scoring: (ScoringFunctionsProtocolPrivate, ScoringFunctions),
     }
 
 
@@ -55,14 +64,14 @@ class ProviderWithSpec(Provider):
 
 
 # TODO: this code is not very straightforward to follow and needs one more round of refactoring
-async def resolve_impls(run_config: StackRunConfig) -> Dict[Api, Any]:
+async def resolve_impls(
+    run_config: StackRunConfig, provider_registry: Dict[Api, Dict[str, ProviderSpec]]
+) -> Dict[Api, Any]:
     """
     Does two things:
     - flatmaps, sorts and resolves the providers in dependency order
     - for each API, produces either a (local, passthrough or router) implementation
     """
-    all_api_providers = get_provider_registry()
-
     routing_table_apis = set(
         x.routing_table_api for x in builtin_automatically_routed_apis()
     )
@@ -79,12 +88,12 @@ async def resolve_impls(run_config: StackRunConfig) -> Dict[Api, Any]:
 
         specs = {}
         for provider in providers:
-            if provider.provider_type not in all_api_providers[api]:
+            if provider.provider_type not in provider_registry[api]:
                 raise ValueError(
                     f"Provider `{provider.provider_type}` is not available for API `{api}`"
                 )
 
-            p = all_api_providers[api][provider.provider_type]
+            p = provider_registry[api][provider.provider_type]
             p.deps__ = [a.value for a in p.api_dependencies]
             spec = ProviderWithSpec(
                 spec=p,
@@ -104,8 +113,6 @@ async def resolve_impls(run_config: StackRunConfig) -> Dict[Api, Any]:
     for info in builtin_automatically_routed_apis():
         if info.router_api.value not in apis_to_serve:
             continue
-
-        available_providers = providers_with_specs[f"inner-{info.router_api.value}"]
 
         providers_with_specs[info.routing_table_api.value] = {
             "__builtin__": ProviderWithSpec(
@@ -239,14 +246,21 @@ async def instantiate_provider(
 
     args = []
     if isinstance(provider_spec, RemoteProviderSpec):
-        if provider_spec.adapter:
-            method = "get_adapter_impl"
-        else:
-            method = "get_client_impl"
-
         config_type = instantiate_class_type(provider_spec.config_class)
         config = config_type(**provider.config)
-        args = [config, deps]
+
+        if provider_spec.adapter:
+            method = "get_adapter_impl"
+            args = [config, deps]
+        else:
+            method = "get_client_impl"
+            protocol = protocols[provider_spec.api]
+            if provider_spec.api in additional_protocols:
+                _, additional_protocol = additional_protocols[provider_spec.api]
+            else:
+                additional_protocol = None
+            args = [protocol, additional_protocol, config, deps]
+
     elif isinstance(provider_spec, AutoRoutedProviderSpec):
         method = "get_auto_router_impl"
 
@@ -275,7 +289,7 @@ async def instantiate_provider(
         not isinstance(provider_spec, AutoRoutedProviderSpec)
         and provider_spec.api in additional_protocols
     ):
-        additional_api = additional_protocols[provider_spec.api]
+        additional_api, _ = additional_protocols[provider_spec.api]
         check_protocol_compliance(impl, additional_api)
 
     return impl

@@ -10,9 +10,10 @@ from typing import Any, List, Optional, Protocol
 from llama_models.schema_utils import json_schema_type
 from pydantic import BaseModel, Field
 
+from llama_stack.apis.datasets import DatasetDef
 from llama_stack.apis.memory_banks import MemoryBankDef
-
 from llama_stack.apis.models import ModelDef
+from llama_stack.apis.scoring_functions import ScoringFnDef
 from llama_stack.apis.shields import ShieldDef
 
 
@@ -22,12 +23,17 @@ class Api(Enum):
     safety = "safety"
     agents = "agents"
     memory = "memory"
+    datasetio = "datasetio"
+    scoring = "scoring"
+    eval = "eval"
 
     telemetry = "telemetry"
 
     models = "models"
     shields = "shields"
     memory_banks = "memory_banks"
+    datasets = "datasets"
+    scoring_functions = "scoring_functions"
 
     # built-in API
     inspect = "inspect"
@@ -49,6 +55,18 @@ class MemoryBanksProtocolPrivate(Protocol):
     async def list_memory_banks(self) -> List[MemoryBankDef]: ...
 
     async def register_memory_bank(self, memory_bank: MemoryBankDef) -> None: ...
+
+
+class DatasetsProtocolPrivate(Protocol):
+    async def list_datasets(self) -> List[DatasetDef]: ...
+
+    async def register_dataset(self, dataset_def: DatasetDef) -> None: ...
+
+
+class ScoringFunctionsProtocolPrivate(Protocol):
+    async def list_scoring_functions(self) -> List[ScoringFnDef]: ...
+
+    async def register_scoring_function(self, function_def: ScoringFnDef) -> None: ...
 
 
 @json_schema_type
@@ -153,7 +171,7 @@ as being "Llama Stack compatible"
     def module(self) -> str:
         if self.adapter:
             return self.adapter.module
-        return f"llama_stack.apis.{self.api.value}.client"
+        return "llama_stack.distribution.client"
 
     @property
     def pip_packages(self) -> List[str]:

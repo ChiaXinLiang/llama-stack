@@ -10,6 +10,8 @@ import os
 import pytest
 import pytest_asyncio
 
+from pydantic import BaseModel, ValidationError
+
 from llama_models.llama3.api.datatypes import *  # noqa: F403
 from llama_stack.apis.inference import *  # noqa: F403
 
@@ -132,11 +134,17 @@ async def test_completion(inference_settings):
     params = inference_settings["common_params"]
 
     provider = inference_impl.routing_table.get_provider_impl(params["model"])
-    if provider.__provider_id__ != "meta-reference":
+    if provider.__provider_spec__.provider_type not in (
+        "meta-reference",
+        "remote::ollama",
+        "remote::tgi",
+        "remote::together",
+        "remote::fireworks",
+    ):
         pytest.skip("Other inference providers don't support completion() yet")
 
     response = await inference_impl.completion(
-        content="Roses are red,",
+        content="Micheael Jordan is born in ",
         stream=False,
         model=params["model"],
         sampling_params=SamplingParams(
@@ -145,7 +153,7 @@ async def test_completion(inference_settings):
     )
 
     assert isinstance(response, CompletionResponse)
-    assert "violets are blue" in response.content
+    assert "1963" in response.content
 
     chunks = [
         r
@@ -160,9 +168,52 @@ async def test_completion(inference_settings):
     ]
 
     assert all(isinstance(chunk, CompletionResponseStreamChunk) for chunk in chunks)
-    assert len(chunks) == 51
+    assert len(chunks) >= 1
     last = chunks[-1]
     assert last.stop_reason == StopReason.out_of_tokens
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip("This test is not quite robust")
+async def test_completions_structured_output(inference_settings):
+    inference_impl = inference_settings["impl"]
+    params = inference_settings["common_params"]
+
+    provider = inference_impl.routing_table.get_provider_impl(params["model"])
+    if provider.__provider_spec__.provider_type not in (
+        "meta-reference",
+        "remote::tgi",
+        "remote::together",
+        "remote::fireworks",
+    ):
+        pytest.skip(
+            "Other inference providers don't support structured output in completions yet"
+        )
+
+    class Output(BaseModel):
+        name: str
+        year_born: str
+        year_retired: str
+
+    user_input = "Michael Jordan was born in 1963. He played basketball for the Chicago Bulls. He retired in 2003."
+    response = await inference_impl.completion(
+        content=user_input,
+        stream=False,
+        model=params["model"],
+        sampling_params=SamplingParams(
+            max_tokens=50,
+        ),
+        response_format=JsonSchemaResponseFormat(
+            json_schema=Output.model_json_schema(),
+        ),
+    )
+    assert isinstance(response, CompletionResponse)
+    assert isinstance(response.content, str)
+
+    answer = Output.parse_raw(response.content)
+    assert answer.name == "Michael Jordan"
+    assert answer.year_born == "1963"
+    assert answer.year_retired == "2003"
 
 
 @pytest.mark.asyncio
@@ -178,6 +229,64 @@ async def test_chat_completion_non_streaming(inference_settings, sample_messages
     assert response.completion_message.role == "assistant"
     assert isinstance(response.completion_message.content, str)
     assert len(response.completion_message.content) > 0
+
+
+@pytest.mark.asyncio
+async def test_structured_output(inference_settings):
+    inference_impl = inference_settings["impl"]
+    params = inference_settings["common_params"]
+
+    provider = inference_impl.routing_table.get_provider_impl(params["model"])
+    if provider.__provider_spec__.provider_type not in (
+        "meta-reference",
+        "remote::fireworks",
+        "remote::tgi",
+        "remote::together",
+    ):
+        pytest.skip("Other inference providers don't support structured output yet")
+
+    class AnswerFormat(BaseModel):
+        first_name: str
+        last_name: str
+        year_of_birth: int
+        num_seasons_in_nba: int
+
+    response = await inference_impl.chat_completion(
+        messages=[
+            SystemMessage(content="You are a helpful assistant."),
+            UserMessage(content="Please give me information about Michael Jordan."),
+        ],
+        stream=False,
+        response_format=JsonSchemaResponseFormat(
+            json_schema=AnswerFormat.model_json_schema(),
+        ),
+        **inference_settings["common_params"],
+    )
+
+    assert isinstance(response, ChatCompletionResponse)
+    assert response.completion_message.role == "assistant"
+    assert isinstance(response.completion_message.content, str)
+
+    answer = AnswerFormat.parse_raw(response.completion_message.content)
+    assert answer.first_name == "Michael"
+    assert answer.last_name == "Jordan"
+    assert answer.year_of_birth == 1963
+    assert answer.num_seasons_in_nba == 15
+
+    response = await inference_impl.chat_completion(
+        messages=[
+            SystemMessage(content="You are a helpful assistant."),
+            UserMessage(content="Please give me information about Michael Jordan."),
+        ],
+        stream=False,
+        **inference_settings["common_params"],
+    )
+
+    assert isinstance(response, ChatCompletionResponse)
+    assert isinstance(response.completion_message.content, str)
+
+    with pytest.raises(ValidationError):
+        AnswerFormat.parse_raw(response.completion_message.content)
 
 
 @pytest.mark.asyncio

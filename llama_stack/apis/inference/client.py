@@ -53,6 +53,7 @@ class InferenceClient(Inference):
         tools: Optional[List[ToolDefinition]] = None,
         tool_choice: Optional[ToolChoice] = ToolChoice.auto,
         tool_prompt_format: Optional[ToolPromptFormat] = ToolPromptFormat.json,
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
     ) -> AsyncGenerator:
@@ -63,6 +64,7 @@ class InferenceClient(Inference):
             tools=tools or [],
             tool_choice=tool_choice,
             tool_prompt_format=tool_prompt_format,
+            response_format=response_format,
             stream=stream,
             logprobs=logprobs,
         )
@@ -170,7 +172,7 @@ async def run_mm_main(
         ],
     )
     cprint(f"User>{message.content}", "green")
-    iterator = client.chat_completion(
+    iterator = await client.chat_completion(
         model=model,
         messages=[message],
         stream=stream,

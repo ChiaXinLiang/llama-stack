@@ -11,6 +11,7 @@ from llama_models.llama3.api.datatypes import *  # noqa: F403
 from llama_stack.apis.models import *  # noqa: F403
 from llama_stack.apis.shields import *  # noqa: F403
 from llama_stack.apis.memory_banks import *  # noqa: F403
+from llama_stack.apis.datasets import *  # noqa: F403
 
 from llama_stack.distribution.datatypes import *  # noqa: F403
 
@@ -21,12 +22,25 @@ def get_impl_api(p: Any) -> Api:
 
 async def register_object_with_provider(obj: RoutableObject, p: Any) -> None:
     api = get_impl_api(p)
+
+    if obj.provider_id == "remote":
+        # if this is just a passthrough, we want to let the remote
+        # end actually do the registration with the correct provider
+        obj = obj.model_copy(deep=True)
+        obj.provider_id = ""
+
     if api == Api.inference:
         await p.register_model(obj)
     elif api == Api.safety:
         await p.register_shield(obj)
     elif api == Api.memory:
         await p.register_memory_bank(obj)
+    elif api == Api.datasetio:
+        await p.register_dataset(obj)
+    elif api == Api.scoring:
+        await p.register_scoring_function(obj)
+    else:
+        raise ValueError(f"Unknown API {api} for registering object with provider")
 
 
 Registry = Dict[str, List[RoutableObjectWithProvider]]
@@ -44,11 +58,22 @@ class CommonRoutingTableImpl(RoutingTable):
     async def initialize(self) -> None:
         self.registry: Registry = {}
 
-        def add_objects(objs: List[RoutableObjectWithProvider]) -> None:
+        def add_objects(
+            objs: List[RoutableObjectWithProvider], provider_id: str, cls
+        ) -> None:
             for obj in objs:
                 if obj.identifier not in self.registry:
                     self.registry[obj.identifier] = []
 
+                if cls is None:
+                    obj.provider_id = provider_id
+                else:
+                    if provider_id == "remote":
+                        # if this is just a passthrough, we got the *WithProvider object
+                        # so we should just override the provider in-place
+                        obj.provider_id = provider_id
+                    else:
+                        obj = cls(**obj.model_dump(), provider_id=provider_id)
                 self.registry[obj.identifier].append(obj)
 
         for pid, p in self.impls_by_provider_id.items():
@@ -56,29 +81,27 @@ class CommonRoutingTableImpl(RoutingTable):
             if api == Api.inference:
                 p.model_store = self
                 models = await p.list_models()
-                add_objects(
-                    [ModelDefWithProvider(**m.dict(), provider_id=pid) for m in models]
-                )
+                add_objects(models, pid, ModelDefWithProvider)
 
             elif api == Api.safety:
                 p.shield_store = self
                 shields = await p.list_shields()
-                add_objects(
-                    [
-                        ShieldDefWithProvider(**s.dict(), provider_id=pid)
-                        for s in shields
-                    ]
-                )
+                add_objects(shields, pid, ShieldDefWithProvider)
 
             elif api == Api.memory:
                 p.memory_bank_store = self
                 memory_banks = await p.list_memory_banks()
+                add_objects(memory_banks, pid, None)
 
-                # do in-memory updates due to pesky Annotated unions
-                for m in memory_banks:
-                    m.provider_id = pid
+            elif api == Api.datasetio:
+                p.dataset_store = self
+                datasets = await p.list_datasets()
+                add_objects(datasets, pid, DatasetDefWithProvider)
 
-                add_objects(memory_banks)
+            elif api == Api.scoring:
+                p.scoring_function_store = self
+                scoring_functions = await p.list_scoring_functions()
+                add_objects(scoring_functions, pid, ScoringFnDefWithProvider)
 
     async def shutdown(self) -> None:
         for p in self.impls_by_provider_id.values():
@@ -94,6 +117,10 @@ class CommonRoutingTableImpl(RoutingTable):
                 return ("Safety", "shield")
             elif isinstance(self, MemoryBanksRoutingTable):
                 return ("Memory", "memory_bank")
+            elif isinstance(self, DatasetsRoutingTable):
+                return ("DatasetIO", "dataset")
+            elif isinstance(self, ScoringFunctionsRoutingTable):
+                return ("Scoring", "scoring_function")
             else:
                 raise ValueError("Unknown routing table type")
 
@@ -137,6 +164,7 @@ class CommonRoutingTableImpl(RoutingTable):
             raise ValueError(f"Provider `{obj.provider_id}` not found")
 
         p = self.impls_by_provider_id[obj.provider_id]
+
         await register_object_with_provider(obj, p)
 
         if obj.identifier not in self.registry:
@@ -190,3 +218,37 @@ class MemoryBanksRoutingTable(CommonRoutingTableImpl, MemoryBanks):
         self, memory_bank: MemoryBankDefWithProvider
     ) -> None:
         await self.register_object(memory_bank)
+
+
+class DatasetsRoutingTable(CommonRoutingTableImpl, Datasets):
+    async def list_datasets(self) -> List[DatasetDefWithProvider]:
+        objects = []
+        for objs in self.registry.values():
+            objects.extend(objs)
+        return objects
+
+    async def get_dataset(
+        self, dataset_identifier: str
+    ) -> Optional[DatasetDefWithProvider]:
+        return self.get_object_by_identifier(dataset_identifier)
+
+    async def register_dataset(self, dataset_def: DatasetDefWithProvider) -> None:
+        await self.register_object(dataset_def)
+
+
+class ScoringFunctionsRoutingTable(CommonRoutingTableImpl, Scoring):
+    async def list_scoring_functions(self) -> List[ScoringFnDefWithProvider]:
+        objects = []
+        for objs in self.registry.values():
+            objects.extend(objs)
+        return objects
+
+    async def get_scoring_function(
+        self, name: str
+    ) -> Optional[ScoringFnDefWithProvider]:
+        return self.get_object_by_identifier(name)
+
+    async def register_scoring_function(
+        self, function_def: ScoringFnDefWithProvider
+    ) -> None:
+        await self.register_object(function_def)

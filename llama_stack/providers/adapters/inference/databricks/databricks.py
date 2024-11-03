@@ -53,6 +53,7 @@ class DatabricksInferenceAdapter(ModelRegistryHelper, Inference):
         model: str,
         content: InterleavedTextMedia,
         sampling_params: Optional[SamplingParams] = SamplingParams(),
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
     ) -> AsyncGenerator:
@@ -63,6 +64,7 @@ class DatabricksInferenceAdapter(ModelRegistryHelper, Inference):
         model: str,
         messages: List[Message],
         sampling_params: Optional[SamplingParams] = SamplingParams(),
+        response_format: Optional[ResponseFormat] = None,
         tools: Optional[List[ToolDefinition]] = None,
         tool_choice: Optional[ToolChoice] = ToolChoice.auto,
         tool_prompt_format: Optional[ToolPromptFormat] = ToolPromptFormat.json,
@@ -114,7 +116,7 @@ class DatabricksInferenceAdapter(ModelRegistryHelper, Inference):
             "model": self.map_to_provider_model(request.model),
             "prompt": chat_completion_request_to_prompt(request, self.formatter),
             "stream": request.stream,
-            **get_sampling_options(request),
+            **get_sampling_options(request.sampling_params),
         }
 
     async def embeddings(

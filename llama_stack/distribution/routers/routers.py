@@ -6,11 +6,14 @@
 
 from typing import Any, AsyncGenerator, Dict, List
 
+from llama_stack.apis.datasetio.datasetio import DatasetIO
 from llama_stack.distribution.datatypes import RoutingTable
 
 from llama_stack.apis.memory import *  # noqa: F403
 from llama_stack.apis.inference import *  # noqa: F403
 from llama_stack.apis.safety import *  # noqa: F403
+from llama_stack.apis.datasetio import *  # noqa: F403
+from llama_stack.apis.scoring import *  # noqa: F403
 
 
 class MemoryRouter(Memory):
@@ -75,6 +78,7 @@ class InferenceRouter(Inference):
         model: str,
         messages: List[Message],
         sampling_params: Optional[SamplingParams] = SamplingParams(),
+        response_format: Optional[ResponseFormat] = None,
         tools: Optional[List[ToolDefinition]] = None,
         tool_choice: Optional[ToolChoice] = ToolChoice.auto,
         tool_prompt_format: Optional[ToolPromptFormat] = ToolPromptFormat.json,
@@ -88,6 +92,7 @@ class InferenceRouter(Inference):
             tools=tools or [],
             tool_choice=tool_choice,
             tool_prompt_format=tool_prompt_format,
+            response_format=response_format,
             stream=stream,
             logprobs=logprobs,
         )
@@ -102,6 +107,7 @@ class InferenceRouter(Inference):
         model: str,
         content: InterleavedTextMedia,
         sampling_params: Optional[SamplingParams] = SamplingParams(),
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
     ) -> AsyncGenerator:
@@ -110,6 +116,7 @@ class InferenceRouter(Inference):
             model=model,
             content=content,
             sampling_params=sampling_params,
+            response_format=response_format,
             stream=stream,
             logprobs=logprobs,
         )
@@ -156,3 +163,86 @@ class SafetyRouter(Safety):
             messages=messages,
             params=params,
         )
+
+
+class DatasetIORouter(DatasetIO):
+    def __init__(
+        self,
+        routing_table: RoutingTable,
+    ) -> None:
+        self.routing_table = routing_table
+
+    async def initialize(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    async def get_rows_paginated(
+        self,
+        dataset_id: str,
+        rows_in_page: int,
+        page_token: Optional[str] = None,
+        filter_condition: Optional[str] = None,
+    ) -> PaginatedRowsResult:
+        return await self.routing_table.get_provider_impl(
+            dataset_id
+        ).get_rows_paginated(
+            dataset_id=dataset_id,
+            rows_in_page=rows_in_page,
+            page_token=page_token,
+            filter_condition=filter_condition,
+        )
+
+
+class ScoringRouter(Scoring):
+    def __init__(
+        self,
+        routing_table: RoutingTable,
+    ) -> None:
+        self.routing_table = routing_table
+
+    async def initialize(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    async def score_batch(
+        self,
+        dataset_id: str,
+        scoring_functions: List[str],
+        save_results_dataset: bool = False,
+    ) -> ScoreBatchResponse:
+        res = {}
+        for fn_identifier in scoring_functions:
+            score_response = await self.routing_table.get_provider_impl(
+                fn_identifier
+            ).score_batch(
+                dataset_id=dataset_id,
+                scoring_functions=[fn_identifier],
+            )
+            res.update(score_response.results)
+
+        if save_results_dataset:
+            raise NotImplementedError("Save results dataset not implemented yet")
+
+        return ScoreBatchResponse(
+            results=res,
+        )
+
+    async def score(
+        self, input_rows: List[Dict[str, Any]], scoring_functions: List[str]
+    ) -> ScoreResponse:
+        res = {}
+        # look up and map each scoring function to its provider impl
+        for fn_identifier in scoring_functions:
+            score_response = await self.routing_table.get_provider_impl(
+                fn_identifier
+            ).score(
+                input_rows=input_rows,
+                scoring_functions=[fn_identifier],
+            )
+            res.update(score_response.results)
+
+        return ScoreResponse(results=res)

@@ -29,9 +29,9 @@ class OpenAICompatCompletionResponse(BaseModel):
     choices: List[OpenAICompatCompletionChoice]
 
 
-def get_sampling_options(request: ChatCompletionRequest) -> dict:
+def get_sampling_options(params: SamplingParams) -> dict:
     options = {}
-    if params := request.sampling_params:
+    if params:
         for attr in {"temperature", "top_p", "top_k", "max_tokens"}:
             if getattr(params, attr):
                 options[attr] = getattr(params, attr)
@@ -49,29 +49,86 @@ def text_from_choice(choice) -> str:
     return choice.text
 
 
+def get_stop_reason(finish_reason: str) -> StopReason:
+    if finish_reason in ["stop", "eos"]:
+        return StopReason.end_of_turn
+    elif finish_reason == "eom":
+        return StopReason.end_of_message
+    elif finish_reason == "length":
+        return StopReason.out_of_tokens
+
+    return StopReason.out_of_tokens
+
+
+def process_completion_response(
+    response: OpenAICompatCompletionResponse, formatter: ChatFormat
+) -> CompletionResponse:
+    choice = response.choices[0]
+    # drop suffix <eot_id> if present and return stop reason as end of turn
+    if choice.text.endswith("<|eot_id|>"):
+        return CompletionResponse(
+            stop_reason=StopReason.end_of_turn,
+            content=choice.text[: -len("<|eot_id|>")],
+        )
+    # drop suffix <eom_id> if present and return stop reason as end of message
+    if choice.text.endswith("<|eom_id|>"):
+        return CompletionResponse(
+            stop_reason=StopReason.end_of_message,
+            content=choice.text[: -len("<|eom_id|>")],
+        )
+    return CompletionResponse(
+        stop_reason=get_stop_reason(choice.finish_reason),
+        content=choice.text,
+    )
+
+
 def process_chat_completion_response(
     response: OpenAICompatCompletionResponse, formatter: ChatFormat
 ) -> ChatCompletionResponse:
     choice = response.choices[0]
 
-    stop_reason = None
-    if reason := choice.finish_reason:
-        if reason in ["stop", "eos"]:
-            stop_reason = StopReason.end_of_turn
-        elif reason == "eom":
-            stop_reason = StopReason.end_of_message
-        elif reason == "length":
-            stop_reason = StopReason.out_of_tokens
-
-    if stop_reason is None:
-        stop_reason = StopReason.out_of_tokens
-
     completion_message = formatter.decode_assistant_message_from_content(
-        text_from_choice(choice), stop_reason
+        text_from_choice(choice), get_stop_reason(choice.finish_reason)
     )
     return ChatCompletionResponse(
         completion_message=completion_message,
         logprobs=None,
+    )
+
+
+async def process_completion_stream_response(
+    stream: AsyncGenerator[OpenAICompatCompletionResponse, None], formatter: ChatFormat
+) -> AsyncGenerator:
+
+    stop_reason = None
+
+    async for chunk in stream:
+        choice = chunk.choices[0]
+        finish_reason = choice.finish_reason
+
+        text = text_from_choice(choice)
+        if text == "<|eot_id|>":
+            stop_reason = StopReason.end_of_turn
+            text = ""
+            continue
+        elif text == "<|eom_id|>":
+            stop_reason = StopReason.end_of_message
+            text = ""
+            continue
+        yield CompletionResponseStreamChunk(
+            delta=text,
+            stop_reason=stop_reason,
+        )
+        if finish_reason:
+            if finish_reason in ["stop", "eos", "eos_token"]:
+                stop_reason = StopReason.end_of_turn
+            elif finish_reason == "length":
+                stop_reason = StopReason.out_of_tokens
+            break
+
+    yield CompletionResponseStreamChunk(
+        delta="",
+        stop_reason=stop_reason,
     )
 
 

@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
-import os
 
 import pytest
 import pytest_asyncio
@@ -73,7 +72,6 @@ async def register_memory_bank(banks_impl: MemoryBanks):
         embedding_model="all-MiniLM-L6-v2",
         chunk_size_in_tokens=512,
         overlap_size_in_tokens=64,
-        provider_id=os.environ["PROVIDER_ID"],
     )
 
     await banks_impl.register_memory_bank(bank)
@@ -144,10 +142,11 @@ async def test_query_documents(memory_settings, sample_documents):
 
     # Test case 5: Query with threshold on similarity score
     query5 = "quantum computing"  # Not directly related to any document
-    params5 = {"score_threshold": 0.5}
+    params5 = {"score_threshold": 0.2}
     response5 = await memory_impl.query_documents("test_bank", query5, params5)
     assert_valid_response(response5)
-    assert all(score >= 0.5 for score in response5.scores)
+    print("The scores are:", response5.scores)
+    assert all(score >= 0.2 for score in response5.scores)
 
 
 def assert_valid_response(response: QueryDocumentsResponse):

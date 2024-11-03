@@ -6,7 +6,15 @@
 
 from enum import Enum
 
-from typing import List, Literal, Optional, Protocol, runtime_checkable, Union
+from typing import (
+    AsyncIterator,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    runtime_checkable,
+    Union,
+)
 
 from llama_models.schema_utils import json_schema_type, webmethod
 
@@ -25,6 +33,7 @@ class LogProbConfig(BaseModel):
 class QuantizationType(Enum):
     bf16 = "bf16"
     fp8 = "fp8"
+    int4 = "int4"
 
 
 @json_schema_type
@@ -37,8 +46,14 @@ class Bf16QuantizationConfig(BaseModel):
     type: Literal[QuantizationType.bf16.value] = QuantizationType.bf16.value
 
 
+@json_schema_type
+class Int4QuantizationConfig(BaseModel):
+    type: Literal[QuantizationType.int4.value] = QuantizationType.int4.value
+    scheme: Optional[str] = "int4_weight_int8_dynamic_activation"
+
+
 QuantizationConfig = Annotated[
-    Union[Bf16QuantizationConfig, Fp8QuantizationConfig],
+    Union[Bf16QuantizationConfig, Fp8QuantizationConfig, Int4QuantizationConfig],
     Field(discriminator="type"),
 ]
 
@@ -74,11 +89,35 @@ class ChatCompletionResponseEvent(BaseModel):
     stop_reason: Optional[StopReason] = None
 
 
+class ResponseFormatType(Enum):
+    json_schema = "json_schema"
+    grammar = "grammar"
+
+
+class JsonSchemaResponseFormat(BaseModel):
+    type: Literal[ResponseFormatType.json_schema.value] = (
+        ResponseFormatType.json_schema.value
+    )
+    json_schema: Dict[str, Any]
+
+
+class GrammarResponseFormat(BaseModel):
+    type: Literal[ResponseFormatType.grammar.value] = ResponseFormatType.grammar.value
+    bnf: Dict[str, Any]
+
+
+ResponseFormat = Annotated[
+    Union[JsonSchemaResponseFormat, GrammarResponseFormat],
+    Field(discriminator="type"),
+]
+
+
 @json_schema_type
 class CompletionRequest(BaseModel):
     model: str
     content: InterleavedTextMedia
     sampling_params: Optional[SamplingParams] = SamplingParams()
+    response_format: Optional[ResponseFormat] = None
 
     stream: Optional[bool] = False
     logprobs: Optional[LogProbConfig] = None
@@ -107,6 +146,7 @@ class BatchCompletionRequest(BaseModel):
     model: str
     content_batch: List[InterleavedTextMedia]
     sampling_params: Optional[SamplingParams] = SamplingParams()
+    response_format: Optional[ResponseFormat] = None
     logprobs: Optional[LogProbConfig] = None
 
 
@@ -129,6 +169,7 @@ class ChatCompletionRequest(BaseModel):
     tool_prompt_format: Optional[ToolPromptFormat] = Field(
         default=ToolPromptFormat.json
     )
+    response_format: Optional[ResponseFormat] = None
 
     stream: Optional[bool] = False
     logprobs: Optional[LogProbConfig] = None
@@ -188,12 +229,11 @@ class Inference(Protocol):
         model: str,
         content: InterleavedTextMedia,
         sampling_params: Optional[SamplingParams] = SamplingParams(),
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
-    ) -> Union[CompletionResponse, CompletionResponseStreamChunk]: ...
+    ) -> Union[CompletionResponse, AsyncIterator[CompletionResponseStreamChunk]]: ...
 
-    # This method is not `async def` because it can result in either an
-    # `AsyncGenerator` or a `ChatCompletionResponse` depending on the value of `stream`.
     @webmethod(route="/inference/chat_completion")
     async def chat_completion(
         self,
@@ -204,9 +244,12 @@ class Inference(Protocol):
         tools: Optional[List[ToolDefinition]] = None,
         tool_choice: Optional[ToolChoice] = ToolChoice.auto,
         tool_prompt_format: Optional[ToolPromptFormat] = ToolPromptFormat.json,
+        response_format: Optional[ResponseFormat] = None,
         stream: Optional[bool] = False,
         logprobs: Optional[LogProbConfig] = None,
-    ) -> Union[ChatCompletionResponse, ChatCompletionResponseStreamChunk]: ...
+    ) -> Union[
+        ChatCompletionResponse, AsyncIterator[ChatCompletionResponseStreamChunk]
+    ]: ...
 
     @webmethod(route="/inference/embeddings")
     async def embeddings(

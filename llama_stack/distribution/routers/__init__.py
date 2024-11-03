@@ -8,8 +8,10 @@ from typing import Any
 
 from llama_stack.distribution.datatypes import *  # noqa: F403
 from .routing_tables import (
+    DatasetsRoutingTable,
     MemoryBanksRoutingTable,
     ModelsRoutingTable,
+    ScoringFunctionsRoutingTable,
     ShieldsRoutingTable,
 )
 
@@ -23,7 +25,10 @@ async def get_routing_table_impl(
         "memory_banks": MemoryBanksRoutingTable,
         "models": ModelsRoutingTable,
         "shields": ShieldsRoutingTable,
+        "datasets": DatasetsRoutingTable,
+        "scoring_functions": ScoringFunctionsRoutingTable,
     }
+
     if api.value not in api_to_tables:
         raise ValueError(f"API {api.value} not found in router map")
 
@@ -33,12 +38,20 @@ async def get_routing_table_impl(
 
 
 async def get_auto_router_impl(api: Api, routing_table: RoutingTable, _deps) -> Any:
-    from .routers import InferenceRouter, MemoryRouter, SafetyRouter
+    from .routers import (
+        DatasetIORouter,
+        InferenceRouter,
+        MemoryRouter,
+        SafetyRouter,
+        ScoringRouter,
+    )
 
     api_to_routers = {
         "memory": MemoryRouter,
         "inference": InferenceRouter,
         "safety": SafetyRouter,
+        "datasetio": DatasetIORouter,
+        "scoring": ScoringRouter,
     }
     if api.value not in api_to_routers:
         raise ValueError(f"API {api.value} not found in router map")
