@@ -31,6 +31,8 @@ from llama_stack.distribution.distribution import (
     get_provider_registry,
 )
 
+from llama_stack.distribution.store.registry import create_dist_registry
+
 from llama_stack.providers.utils.telemetry.tracing import (
     end_trace,
     setup_logger,
@@ -38,7 +40,6 @@ from llama_stack.providers.utils.telemetry.tracing import (
     start_trace,
 )
 from llama_stack.distribution.datatypes import *  # noqa: F403
-
 from llama_stack.distribution.request_headers import set_request_provider_data
 from llama_stack.distribution.resolver import resolve_impls
 
@@ -206,7 +207,8 @@ async def maybe_await(value):
 
 async def sse_generator(event_gen):
     try:
-        async for item in await event_gen:
+        event_gen = await event_gen
+        async for item in event_gen:
             yield create_sse_event(item)
             await asyncio.sleep(0.01)
     except asyncio.CancelledError:
@@ -226,7 +228,6 @@ async def sse_generator(event_gen):
 
 
 def create_dynamic_typed_route(func: Any, method: str):
-
     async def endpoint(request: Request, **kwargs):
         await start_trace(func.__name__)
 
@@ -279,7 +280,9 @@ def main(
 
     app = FastAPI()
 
-    impls = asyncio.run(resolve_impls(config, get_provider_registry()))
+    dist_registry, dist_kvstore = asyncio.run(create_dist_registry(config))
+
+    impls = asyncio.run(resolve_impls(config, get_provider_registry(), dist_registry))
     if Api.telemetry in impls:
         setup_logger(impls[Api.telemetry])
 

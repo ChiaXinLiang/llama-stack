@@ -6,15 +6,17 @@
 
 from enum import Enum
 from typing import Any, List, Optional, Protocol
+from urllib.parse import urlparse
 
 from llama_models.schema_utils import json_schema_type
 from pydantic import BaseModel, Field
 
 from llama_stack.apis.datasets import DatasetDef
+from llama_stack.apis.eval_tasks import EvalTaskDef
 from llama_stack.apis.memory_banks import MemoryBankDef
-from llama_stack.apis.models import ModelDef
+from llama_stack.apis.models import Model
 from llama_stack.apis.scoring_functions import ScoringFnDef
-from llama_stack.apis.shields import ShieldDef
+from llama_stack.apis.shields import Shield
 
 
 @json_schema_type
@@ -34,21 +36,18 @@ class Api(Enum):
     memory_banks = "memory_banks"
     datasets = "datasets"
     scoring_functions = "scoring_functions"
+    eval_tasks = "eval_tasks"
 
     # built-in API
     inspect = "inspect"
 
 
 class ModelsProtocolPrivate(Protocol):
-    async def list_models(self) -> List[ModelDef]: ...
-
-    async def register_model(self, model: ModelDef) -> None: ...
+    async def register_model(self, model: Model) -> None: ...
 
 
 class ShieldsProtocolPrivate(Protocol):
-    async def list_shields(self) -> List[ShieldDef]: ...
-
-    async def register_shield(self, shield: ShieldDef) -> None: ...
+    async def register_shield(self, shield: Shield) -> None: ...
 
 
 class MemoryBanksProtocolPrivate(Protocol):
@@ -69,6 +68,12 @@ class ScoringFunctionsProtocolPrivate(Protocol):
     async def register_scoring_function(self, function_def: ScoringFnDef) -> None: ...
 
 
+class EvalTasksProtocolPrivate(Protocol):
+    async def list_eval_tasks(self) -> List[EvalTaskDef]: ...
+
+    async def register_eval_task(self, eval_task_def: EvalTaskDef) -> None: ...
+
+
 @json_schema_type
 class ProviderSpec(BaseModel):
     api: Api
@@ -80,6 +85,10 @@ class ProviderSpec(BaseModel):
     api_dependencies: List[Api] = Field(
         default_factory=list,
         description="Higher-level API surfaces may depend on other providers to provide their functionality",
+    )
+    deprecation_warning: Optional[str] = Field(
+        default=None,
+        description="If this provider is deprecated, specify the warning message here",
     )
 
     # used internally by the resolver; this is a hack for now
@@ -145,11 +154,19 @@ Fully-qualified name of the module to import. The module is expected to have:
 
 class RemoteProviderConfig(BaseModel):
     host: str = "localhost"
-    port: int
+    port: Optional[int] = None
+    protocol: str = "http"
 
     @property
     def url(self) -> str:
-        return f"http://{self.host}:{self.port}"
+        if self.port is None:
+            return f"{self.protocol}://{self.host}"
+        return f"{self.protocol}://{self.host}:{self.port}"
+
+    @classmethod
+    def from_url(cls, url: str) -> "RemoteProviderConfig":
+        parsed = urlparse(url)
+        return cls(host=parsed.hostname, port=parsed.port, protocol=parsed.scheme)
 
 
 @json_schema_type

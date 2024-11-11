@@ -36,15 +36,23 @@ def available_providers() -> List[ProviderSpec]:
             api=Api.memory,
             provider_type="meta-reference",
             pip_packages=EMBEDDING_DEPS + ["faiss-cpu"],
-            module="llama_stack.providers.impls.meta_reference.memory",
-            config_class="llama_stack.providers.impls.meta_reference.memory.FaissImplConfig",
+            module="llama_stack.providers.inline.memory.faiss",
+            config_class="llama_stack.providers.inline.memory.faiss.FaissImplConfig",
+            deprecation_warning="Please use the `faiss` provider instead.",
+        ),
+        InlineProviderSpec(
+            api=Api.memory,
+            provider_type="faiss",
+            pip_packages=EMBEDDING_DEPS + ["faiss-cpu"],
+            module="llama_stack.providers.inline.memory.faiss",
+            config_class="llama_stack.providers.inline.memory.faiss.FaissImplConfig",
         ),
         remote_provider_spec(
             Api.memory,
             AdapterSpec(
                 adapter_type="chromadb",
                 pip_packages=EMBEDDING_DEPS + ["chromadb-client"],
-                module="llama_stack.providers.adapters.memory.chroma",
+                module="llama_stack.providers.remote.memory.chroma",
             ),
         ),
         remote_provider_spec(
@@ -52,8 +60,8 @@ def available_providers() -> List[ProviderSpec]:
             AdapterSpec(
                 adapter_type="pgvector",
                 pip_packages=EMBEDDING_DEPS + ["psycopg2-binary"],
-                module="llama_stack.providers.adapters.memory.pgvector",
-                config_class="llama_stack.providers.adapters.memory.pgvector.PGVectorConfig",
+                module="llama_stack.providers.remote.memory.pgvector",
+                config_class="llama_stack.providers.remote.memory.pgvector.PGVectorConfig",
             ),
         ),
         remote_provider_spec(
@@ -61,9 +69,9 @@ def available_providers() -> List[ProviderSpec]:
             AdapterSpec(
                 adapter_type="weaviate",
                 pip_packages=EMBEDDING_DEPS + ["weaviate-client"],
-                module="llama_stack.providers.adapters.memory.weaviate",
-                config_class="llama_stack.providers.adapters.memory.weaviate.WeaviateConfig",
-                provider_data_validator="llama_stack.providers.adapters.memory.weaviate.WeaviateRequestProviderData",
+                module="llama_stack.providers.remote.memory.weaviate",
+                config_class="llama_stack.providers.remote.memory.weaviate.WeaviateConfig",
+                provider_data_validator="llama_stack.providers.remote.memory.weaviate.WeaviateRequestProviderData",
             ),
         ),
         remote_provider_spec(
@@ -71,8 +79,8 @@ def available_providers() -> List[ProviderSpec]:
             adapter=AdapterSpec(
                 adapter_type="sample",
                 pip_packages=[],
-                module="llama_stack.providers.adapters.memory.sample",
-                config_class="llama_stack.providers.adapters.memory.sample.SampleConfig",
+                module="llama_stack.providers.remote.memory.sample",
+                config_class="llama_stack.providers.remote.memory.sample.SampleConfig",
             ),
         ),
         remote_provider_spec(
@@ -80,8 +88,8 @@ def available_providers() -> List[ProviderSpec]:
             AdapterSpec(
                 adapter_type="qdrant",
                 pip_packages=EMBEDDING_DEPS + ["qdrant-client"],
-                module="llama_stack.providers.adapters.memory.qdrant",
-                config_class="llama_stack.providers.adapters.memory.qdrant.QdrantConfig",
+                module="llama_stack.providers.remote.memory.qdrant",
+                config_class="llama_stack.providers.remote.memory.qdrant.QdrantConfig",
             ),
         ),
     ]

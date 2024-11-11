@@ -4,7 +4,7 @@
 # This source code is licensed under the terms described in the LICENSE file in
 # the root directory of this source tree.
 
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from llama_stack.apis.datasetio.datasetio import DatasetIO
 from llama_stack.distribution.datatypes import RoutingTable
@@ -14,6 +14,7 @@ from llama_stack.apis.inference import *  # noqa: F403
 from llama_stack.apis.safety import *  # noqa: F403
 from llama_stack.apis.datasetio import *  # noqa: F403
 from llama_stack.apis.scoring import *  # noqa: F403
+from llama_stack.apis.eval import *  # noqa: F403
 
 
 class MemoryRouter(Memory):
@@ -70,8 +71,16 @@ class InferenceRouter(Inference):
     async def shutdown(self) -> None:
         pass
 
-    async def register_model(self, model: ModelDef) -> None:
-        await self.routing_table.register_model(model)
+    async def register_model(
+        self,
+        model_id: str,
+        provider_model_id: Optional[str] = None,
+        provider_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        await self.routing_table.register_model(
+            model_id, provider_model_id, provider_id, metadata
+        )
 
     async def chat_completion(
         self,
@@ -149,17 +158,26 @@ class SafetyRouter(Safety):
     async def shutdown(self) -> None:
         pass
 
-    async def register_shield(self, shield: ShieldDef) -> None:
-        await self.routing_table.register_shield(shield)
+    async def register_shield(
+        self,
+        shield_id: str,
+        shield_type: ShieldType,
+        provider_shield_id: Optional[str] = None,
+        provider_id: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Shield:
+        return await self.routing_table.register_shield(
+            shield_id, shield_type, provider_shield_id, provider_id, params
+        )
 
     async def run_shield(
         self,
-        shield_type: str,
+        shield_id: str,
         messages: List[Message],
         params: Dict[str, Any] = None,
     ) -> RunShieldResponse:
-        return await self.routing_table.get_provider_impl(shield_type).run_shield(
-            shield_type=shield_type,
+        return await self.routing_table.get_provider_impl(shield_id).run_shield(
+            shield_id=shield_id,
             messages=messages,
             params=params,
         )
@@ -211,16 +229,16 @@ class ScoringRouter(Scoring):
     async def score_batch(
         self,
         dataset_id: str,
-        scoring_functions: List[str],
+        scoring_functions: Dict[str, Optional[ScoringFnParams]] = None,
         save_results_dataset: bool = False,
     ) -> ScoreBatchResponse:
         res = {}
-        for fn_identifier in scoring_functions:
+        for fn_identifier in scoring_functions.keys():
             score_response = await self.routing_table.get_provider_impl(
                 fn_identifier
             ).score_batch(
                 dataset_id=dataset_id,
-                scoring_functions=[fn_identifier],
+                scoring_functions={fn_identifier: scoring_functions[fn_identifier]},
             )
             res.update(score_response.results)
 
@@ -232,17 +250,87 @@ class ScoringRouter(Scoring):
         )
 
     async def score(
-        self, input_rows: List[Dict[str, Any]], scoring_functions: List[str]
+        self,
+        input_rows: List[Dict[str, Any]],
+        scoring_functions: Dict[str, Optional[ScoringFnParams]] = None,
     ) -> ScoreResponse:
         res = {}
         # look up and map each scoring function to its provider impl
-        for fn_identifier in scoring_functions:
+        for fn_identifier in scoring_functions.keys():
             score_response = await self.routing_table.get_provider_impl(
                 fn_identifier
             ).score(
                 input_rows=input_rows,
-                scoring_functions=[fn_identifier],
+                scoring_functions={fn_identifier: scoring_functions[fn_identifier]},
             )
             res.update(score_response.results)
 
         return ScoreResponse(results=res)
+
+
+class EvalRouter(Eval):
+    def __init__(
+        self,
+        routing_table: RoutingTable,
+    ) -> None:
+        self.routing_table = routing_table
+
+    async def initialize(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    async def run_eval(
+        self,
+        task_id: str,
+        task_config: AppEvalTaskConfig,
+    ) -> Job:
+        return await self.routing_table.get_provider_impl(task_id).run_eval(
+            task_id=task_id,
+            task_config=task_config,
+        )
+
+    @webmethod(route="/eval/evaluate_rows", method="POST")
+    async def evaluate_rows(
+        self,
+        task_id: str,
+        input_rows: List[Dict[str, Any]],
+        scoring_functions: List[str],
+        task_config: EvalTaskConfig,
+    ) -> EvaluateResponse:
+        return await self.routing_table.get_provider_impl(task_id).evaluate_rows(
+            task_id=task_id,
+            input_rows=input_rows,
+            scoring_functions=scoring_functions,
+            task_config=task_config,
+        )
+
+    async def job_status(
+        self,
+        task_id: str,
+        job_id: str,
+    ) -> Optional[JobStatus]:
+        return await self.routing_table.get_provider_impl(task_id).job_status(
+            task_id, job_id
+        )
+
+    async def job_cancel(
+        self,
+        task_id: str,
+        job_id: str,
+    ) -> None:
+        await self.routing_table.get_provider_impl(task_id).job_cancel(
+            task_id,
+            job_id,
+        )
+
+    async def job_result(
+        self,
+        task_id: str,
+        job_id: str,
+    ) -> EvaluateResponse:
+        return await self.routing_table.get_provider_impl(task_id).job_result(
+            task_id,
+            job_id,
+        )
